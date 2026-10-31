@@ -221,6 +221,53 @@ def test_explicit_by_alias_false_overrides_validate_by_alias() -> None:
     assert list(Model.model_json_schema(by_alias=False)['properties']) == ['my_field']
 
 
+def test_serialize_by_alias_false_uses_field_name() -> None:
+    """https://github.com/pydantic/pydantic/issues/13754"""
+
+    class Model(BaseModel):
+        model_config = ConfigDict(serialize_by_alias=False)
+        my_field: str = Field(serialization_alias='myAlias')
+
+    # Serialization schema must match model_dump: field names, not aliases.
+    assert list(Model.model_json_schema(mode='serialization')['properties']) == ['my_field']
+    assert list(Model(my_field='foo').model_dump().keys()) == ['my_field']
+
+
+def test_serialize_by_alias_false_applies_to_computed_field_aliases() -> None:
+    class Model(BaseModel):
+        model_config = ConfigDict(serialize_by_alias=False)
+
+        @computed_field(alias='computedAlias')
+        @property
+        def computed(self) -> str:
+            return 'v'
+
+    assert list(Model.model_json_schema(mode='serialization')['properties']) == ['computed']
+
+
+def test_serialize_by_alias_true_still_uses_alias() -> None:
+    class Model(BaseModel):
+        model_config = ConfigDict(serialize_by_alias=True)
+        my_field: str = Field(serialization_alias='myAlias')
+
+    assert list(Model.model_json_schema(mode='serialization')['properties']) == ['myAlias']
+    assert list(Model(my_field='foo').model_dump().keys()) == ['myAlias']
+
+
+def test_serialize_by_alias_false_is_scoped_to_its_own_model() -> None:
+    class Inner(BaseModel):
+        model_config = ConfigDict(serialize_by_alias=False)
+        inner_field: str = Field(serialization_alias='innerAlias')
+
+    class Outer(BaseModel):
+        outer_field: str = Field(serialization_alias='outerAlias')
+        inner: Inner
+
+    json_schema = Outer.model_json_schema(mode='serialization')
+    assert list(json_schema['properties']) == ['outer_field', 'inner']
+    assert list(json_schema['$defs']['Inner']['properties']) == ['inner_field']
+
+
 def test_ref_template():
     class KeyLimePie(BaseModel):
         x: str = None
